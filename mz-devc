@@ -1,0 +1,161 @@
+#!/usr/bin/env python3
+import argparse
+import dataclasses
+import os.path
+import subprocess
+import sys
+import typing
+
+ROOT_DIR = os.path.dirname(os.path.realpath(__file__))
+
+STD_PASS = 'devtest'
+
+
+@dataclasses.dataclass
+class Cli:
+    args: list[str]
+    alias: str
+
+
+@dataclasses.dataclass
+class Service:
+    service_name: str
+    cli: list[Cli] = dataclasses.field(default_factory=[])
+    file: typing.Optional[str] = None
+
+    @property
+    def full_file_path(self):
+        if self.file is None:
+            return None
+        return os.path.join(ROOT_DIR, self.file)
+
+    @property
+    def project_name(self):
+        if self.file is None:
+            return None
+        file_stripped = self.file
+        if file_stripped.endswith('.yml'):
+            file_stripped = file_stripped[:-4]
+        elif file_stripped.endswith('.yaml'):
+            file_stripped = file_stripped[:-5]
+        return f'mz-devc-{file_stripped}'
+
+
+def _services() -> dict[str, Service]:
+    index = {}
+    dev_services = {
+        'redis.yml': [
+            Service('redis-single', cli=[
+                Cli(
+                    ['redis-cli', '--user', 'default', '--pass', STD_PASS, '--no-auth-warning'],
+                    'redis-cli'
+                )
+            ]),
+            Service('redis-single-2', cli=[
+                Cli(
+                    ['redis-cli', '-p', '6380', '--user', 'default',
+                     '--pass', STD_PASS, '--no-auth-warning'],
+                    'redis-cli'
+                )
+            ]),
+        ]
+    }
+    for file, services in dev_services.items():
+        for service in services:
+            index[service.service_name] = dataclasses.replace(service, file=file)
+    return index
+
+
+SERVICES = _services()
+
+
+def args_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description='mz-devc')
+
+    subparsers = parser.add_subparsers(title='commands', dest='command')
+
+    start = subparsers.add_parser('start')
+    start.add_argument('service', metavar='SERVICE_NAME', type=str)
+
+    stop = subparsers.add_parser('stop')
+    stop.add_argument('service', metavar='SERVICE_NAME', type=str)
+
+    cli = subparsers.add_parser('cli')
+    cli.add_argument('service', metavar='SERVICE_NAME', type=str)
+    cli.add_argument('--cli', metavar='CLI_ALIAS', type=str, required=False)
+    cli.add_argument('rest', nargs=argparse.REMAINDER)
+
+    return parser
+
+
+def docker_compose(args):
+    final_args = ['docker', 'compose'] + args
+    try:
+        subprocess.check_call(final_args)
+    except subprocess.CalledProcessError as e:
+        return e.returncode
+    return 0
+
+
+def main():
+    parser = args_parser()
+    args = parser.parse_args()
+    if args.command == 'start':
+        service = SERVICES.get(args.service)
+        if not service:
+            print(f'Unknown service {args.service}', file=sys.stderr)
+            return 2
+        return docker_compose([
+            '--file', service.full_file_path,
+            '--project-name', service.project_name,
+            'up', service.service_name,
+            '--detach'
+        ])
+    elif args.command == 'stop':
+        service = SERVICES.get(args.service)
+        if not service:
+            print(f'Unknown service {args.service}', file=sys.stderr)
+            return 2
+        return docker_compose([
+            '--file', service.full_file_path,
+            '--project-name', service.project_name,
+            'stop', service.service_name,
+        ])
+    elif args.command == 'cli':
+        service = SERVICES.get(args.service)
+        if not service:
+            print(f'Unknown service {args.service}', file=sys.stderr)
+            return 2
+        if args.cli is not None:
+            cli = next(i for i in service.cli if i.alias == args.cli)
+            if cli is None:
+                print(f'Unknown cli alias {args.cli}', file=sys.stderr)
+                return 2
+        elif not service.cli:
+            print(f'There is no cli in service {service.service_name}', file=sys.stderr)
+            return 2
+        else:
+            cli = service.cli[0]
+        return docker_compose([
+            '--file', service.full_file_path,
+            '--project-name', service.project_name,
+            'exec', service.service_name] + cli.args + args.rest)
+    else:
+        print(f'DevC dir: {ROOT_DIR}')
+        print()
+        parser.print_help()
+        print()
+        for subparsers_action in [
+                action for action in parser._actions
+                if isinstance(action, argparse._SubParsersAction)
+        ]:
+            for choice, subparser in subparsers_action.choices.items():
+                print('\033[1m' + choice + '\033[0m')
+                print(subparser.format_help())
+                print()
+        return 0
+    return 0
+
+
+if __name__ == '__main__':
+    exit(main())

@@ -1,0 +1,20 @@
+services:
+  redis-single:
+    image: bitnami/redis:7.2.4
+    container_name: mz-devc-redis-single
+    ports:
+      - '127.0.0.1:6379:6379'
+    volumes:
+      - './data/redis_redis-single:/bitnami/redis/data'
+    environment:
+      - 'REDIS_PASSWORD=devtest'
+  redis-single-2:
+    image: bitnami/redis:7.2.4
+    container_name: mz-devc-redis-single-2
+    ports:
+      - '127.0.0.1:6380:6380'
+    volumes:
+      - './data/redis_redis-single-2:/bitnami/redis/data'
+    environment:
+      - 'REDIS_PASSWORD=devtest'
+      - 'REDIS_PORT_NUMBER=6380'
