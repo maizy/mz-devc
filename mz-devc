@@ -5,6 +5,7 @@ import os.path
 import subprocess
 import sys
 import typing
+import itertools
 
 ROOT_DIR = os.path.dirname(os.path.realpath(__file__))
 
@@ -15,12 +16,13 @@ STD_PASS = 'devtest'
 class Cli:
     args: list[str]
     alias: str
+    env: dict[str, str] = dataclasses.field(default_factory=lambda: {})
 
 
 @dataclasses.dataclass
 class Service:
     service_name: str
-    cli: list[Cli] = dataclasses.field(default_factory=[])
+    cli: list[Cli] = dataclasses.field(default_factory=lambda: [])
     file: typing.Optional[str] = None
 
     @property
@@ -47,15 +49,18 @@ def _services() -> dict[str, Service]:
         'redis.yml': [
             Service('redis-single', cli=[
                 Cli(
-                    ['redis-cli', '--user', 'default', '--pass', STD_PASS, '--no-auth-warning'],
-                    'redis-cli'
+                    ['redis-cli',
+                     '--user', 'default', '--pass', STD_PASS, '--no-auth-warning'],
+                    'redis-cli',
+                    env={'REDISCLI_HISTFILE': '/bitnami/redis/data/redis-cli.history'}
                 )
             ]),
             Service('redis-single-2', cli=[
                 Cli(
-                    ['redis-cli', '-p', '6380', '--user', 'default',
-                     '--pass', STD_PASS, '--no-auth-warning'],
-                    'redis-cli'
+                    ['redis-cli', '-p', '6380',
+                     '--user', 'default', '--pass', STD_PASS, '--no-auth-warning'],
+                    'redis-cli',
+                    env={'REDISCLI_HISTFILE': '/bitnami/redis/data/redis-cli.history'}
                 )
             ]),
         ]
@@ -136,10 +141,13 @@ def main():
             return 2
         else:
             cli = service.cli[0]
-        return docker_compose([
-            '--file', service.full_file_path,
-            '--project-name', service.project_name,
-            'exec', service.service_name] + cli.args + args.rest)
+        envs = list(itertools.chain.from_iterable(['-e', f'{k}={v}'] for k, v in cli.env.items()))
+        docker_args = (['--file', service.full_file_path, '--project-name', service.project_name, 'exec'] +
+                       envs +
+                       [service.service_name] +
+                       cli.args +
+                       args.rest)
+        return docker_compose(docker_args)
     else:
         print(f'DevC dir: {ROOT_DIR}')
         print()
