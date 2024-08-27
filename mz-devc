@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# PYTHON_ARGCOMPLETE_OK
 import argparse
 import dataclasses
 import os.path
@@ -6,6 +7,10 @@ import subprocess
 import sys
 import typing
 import itertools
+try:
+    import argcomplete
+except ImportError:
+    argcomplete = None
 
 ROOT_DIR = os.path.dirname(os.path.realpath(__file__))
 
@@ -43,8 +48,9 @@ class Service:
         return f'mz-devc-{file_stripped}'
 
 
-def _services() -> dict[str, Service]:
-    index = {}
+def _services() -> tuple[list[str], dict[str, Service]]:
+    services_index = {}
+    cli_aliases = set()
     dev_services = {
         'redis.yml': [
             Service('redis-single', cli=[
@@ -74,27 +80,40 @@ def _services() -> dict[str, Service]:
     }
     for file, services in dev_services.items():
         for service in services:
-            index[service.service_name] = dataclasses.replace(service, file=file)
-    return index
+            services_index[service.service_name] = dataclasses.replace(service, file=file)
+            for cli in service.cli:
+                cli_aliases.add(cli.alias)
 
+    return list(cli_aliases), services_index
 
-SERVICES = _services()
+CLI_ALIASES, SERVICES = _services()
 
 
 def args_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description='mz-devc')
+
+    def append_help(any_parser):
+        help_arg = any_parser.add_argument('-h', '--help', action='help', default=argparse.SUPPRESS,
+                                           help='Show help')
+        if argcomplete:
+            help_arg.completer = argcomplete.SuppressCompleter()
+
+    parser = argparse.ArgumentParser(description='mz-devc', add_help=False)
+    append_help(parser)
 
     subparsers = parser.add_subparsers(title='commands', dest='command')
 
-    start = subparsers.add_parser('start')
-    start.add_argument('service', metavar='SERVICE_NAME', type=str)
+    start = subparsers.add_parser('start', help='command', add_help=False)
+    append_help(start)
+    start.add_argument('service', metavar='SERVICE_NAME', type=str, choices=SERVICES.keys(), help='service')
 
-    stop = subparsers.add_parser('stop')
-    stop.add_argument('service', metavar='SERVICE_NAME', type=str)
+    stop = subparsers.add_parser('stop', help='command', add_help=False)
+    append_help(stop)
+    stop.add_argument('service', metavar='SERVICE_NAME', type=str, choices=SERVICES.keys(), help='service')
 
-    cli = subparsers.add_parser('cli')
-    cli.add_argument('service', metavar='SERVICE_NAME', type=str)
-    cli.add_argument('--cli', metavar='CLI_ALIAS', type=str, required=False)
+    cli = subparsers.add_parser('cli', help='command', add_help=False)
+    append_help(cli)
+    cli.add_argument('service', metavar='SERVICE_NAME', type=str, choices=SERVICES.keys(), help='service')
+    cli.add_argument('--cli', metavar='CLI_ALIAS', type=str, required=False, choices=CLI_ALIASES, help='tool')
     cli.add_argument('rest', nargs=argparse.REMAINDER)
 
     return parser
@@ -111,6 +130,8 @@ def docker_compose(args):
 
 def main():
     parser = args_parser()
+    if argcomplete:
+        argcomplete.autocomplete(parser)
     args = parser.parse_args()
     if args.command == 'start':
         service = SERVICES.get(args.service)
@@ -156,7 +177,17 @@ def main():
                        args.rest)
         return docker_compose(docker_args)
     else:
+        print(r'''
+░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+░░░  ░░░░  ░░        ░░░░░░       ░░░        ░░  ░░░░  ░░░      ░░░░
+▒▒▒   ▒▒   ▒▒▒▒▒▒▒  ▒▒▒▒▒▒▒  ▒▒▒▒  ▒▒  ▒▒▒▒▒▒▒▒  ▒▒▒▒  ▒▒  ▒▒▒▒  ▒▒▒
+▓▓▓        ▓▓▓▓▓  ▓▓▓    ▓▓  ▓▓▓▓  ▓▓      ▓▓▓▓▓  ▓▓  ▓▓▓  ▓▓▓▓▓▓▓▓▓
+███  █  █  ███  ███████████  ████  ██  ██████████    ████  ████  ███
+███  ████  ██        ██████       ███        █████  ██████      ████
+████████████████████████████████████████████████████████████████████
+''')
         print(f'DevC dir: {ROOT_DIR}')
+        print(f'Python: {sys.executable}')
         print()
         parser.print_help()
         print()
@@ -169,7 +200,6 @@ def main():
                 print(subparser.format_help())
                 print()
         return 0
-    return 0
 
 
 if __name__ == '__main__':
