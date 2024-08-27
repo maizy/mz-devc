@@ -63,6 +63,13 @@ def _services() -> dict[str, Service]:
                     env={'REDISCLI_HISTFILE': '/bitnami/redis/data/redis-cli.history'}
                 )
             ]),
+            Service('redis-single-no-auth', cli=[
+                Cli(
+                    ['redis-cli'],
+                    'redis-cli',
+                    env={'REDISCLI_HISTFILE': '/bitnami/redis/data/redis-cli.history'}
+                )
+            ]),
         ]
     }
     for file, services in dev_services.items():

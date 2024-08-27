@@ -1,4 +1,13 @@
 services:
+  redis-single-no-auth:
+    image: bitnami/redis:7.2.4
+    container_name: mz-devc-redis-single-no-auth
+    ports:
+      - '127.0.0.1:6379:6379'
+    volumes:
+      - './data/redis_redis-single-no-auth:/bitnami/redis/data'
+    environment:
+      - 'ALLOW_EMPTY_PASSWORD=yes'
   redis-single:
     image: bitnami/redis:7.2.4
     container_name: mz-devc-redis-single
